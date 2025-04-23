@@ -1,0 +1,5 @@
+#cloud-config
+runcmd:
+  - curl -sSL https://raw.githubusercontent.com/Bzcasper/cloud-init-ubuntu24/main/cloud-init-ai-setup -o /root/cloud-init-ai-setup.sh
+  - chmod +x /root/cloud-init-ai-setup.sh
+  - /root/cloud-init-ai-setup.sh
