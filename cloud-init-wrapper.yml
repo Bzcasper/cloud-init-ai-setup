@@ -1,5 +1,7 @@
 #cloud-config
 runcmd:
-  - curl -sSL https://raw.githubusercontent.com/Bzcasper/cloud-init-ubuntu24/main/cloud-init-ai-setup -o /root/cloud-init-ai-setup.sh
-  - chmod +x /root/cloud-init-ai-setup.sh
-  - /root/cloud-init-ai-setup.sh
+  - echo "Starting enhanced local AI setup at $(date)" > /var/log/cloud-init-ai-setup.log
+  - mkdir -p /root/setup
+  - echo "Using locally uploaded setup scripts from D:\cloud-init-ai-setup\setup" >> /var/log/cloud-init-ai-setup.log
+  - chmod +x /root/setup/*.sh
+  - /root/setup/main.sh >> /var/log/cloud-init-ai-setup.log 2>&1 || echo "Setup failed, check /var/log/cloud-init-ai-setup.log for details"
