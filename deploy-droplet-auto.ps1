@@ -87,15 +87,26 @@ ssh-add "C:\Users\rober\.ssh\id_rsa_auto"
 
 # Step 8: Wait for SSH to become available on both droplets
 Write-Output "Waiting for SSH to become available on ai-init-droplet..."
+$timeoutSeconds = 300  # 5 minutes timeout
+$startTime = Get-Date
 while (-not (Test-NetConnection -ComputerName $initIp -Port 22 -InformationLevel Quiet)) {
-    Start-Sleep -Seconds 5
-    Write-Output "Still waiting for SSH on ai-init-droplet..."
+    if (((Get-Date) - $startTime).TotalSeconds -gt $timeoutSeconds) {
+        Write-Error "Timeout waiting for SSH on ai-init-droplet. Please check the droplet status manually."
+        exit 1
+    }
+    Start-Sleep -Seconds 10
+    Write-Output "Still waiting for SSH on ai-init-droplet... (Elapsed: $((Get-Date) - $startTime).TotalSeconds seconds)"
 }
 
 Write-Output "Waiting for SSH to become available on ai-kit..."
+$startTime = Get-Date
 while (-not (Test-NetConnection -ComputerName $kitIp -Port 22 -InformationLevel Quiet)) {
-    Start-Sleep -Seconds 5
-    Write-Output "Still waiting for SSH on ai-kit..."
+    if (((Get-Date) - $startTime).TotalSeconds -gt $timeoutSeconds) {
+        Write-Error "Timeout waiting for SSH on ai-kit. Please check the droplet status manually."
+        exit 1
+    }
+    Start-Sleep -Seconds 10
+    Write-Output "Still waiting for SSH on ai-kit... (Elapsed: $((Get-Date) - $startTime).TotalSeconds seconds)"
 }
 
 # Step 9: Test SSH access
@@ -103,12 +114,32 @@ Write-Output "Testing SSH access..."
 ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$initIp "echo 'SSH successful for ai-init-droplet'" 2>&1 | Write-Output
 ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$kitIp "echo 'SSH successful for ai-kit'" 2>&1 | Write-Output
 
+# Step 9.1: Ensure SSH service is running on droplets
+Write-Output "Ensuring SSH service is running on ai-init-droplet..."
+ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$initIp "systemctl restart sshd" 2>&1 | Write-Output
+ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$initIp "systemctl status sshd" 2>&1 | Write-Output
+
+Write-Output "Ensuring SSH service is running on ai-kit..."
+ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$kitIp "systemctl restart sshd" 2>&1 | Write-Output
+ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$kitIp "systemctl status sshd" 2>&1 | Write-Output
+
 # Step 10: Upload setup scripts to both droplets
 Write-Output "Uploading setup scripts to droplets..."
 
 # Create setup directory on droplets
 ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$initIp "mkdir -p /root/setup" 2>&1 | Write-Output
 ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$kitIp "mkdir -p /root/setup" 2>&1 | Write-Output
+
+# Make scripts executable locally
+Write-Output "Making scripts executable locally..."
+Get-ChildItem -Path "$setupDir\*.sh" | ForEach-Object {
+    $scriptPath = $_.FullName
+    Write-Output "Setting executable flag on $scriptPath..."
+    # Use git bash or similar to set executable flag on Windows if available
+    if (Test-Path "C:\Program Files\Git\bin\bash.exe") {
+        & "C:\Program Files\Git\bin\bash.exe" -c "chmod +x '$scriptPath'"
+    }
+}
 
 # Upload all setup scripts to ai-init-droplet
 Write-Output "Uploading setup scripts to ai-init-droplet..."
@@ -126,10 +157,25 @@ Get-ChildItem -Path "$setupDir\*.sh" | ForEach-Object {
     scp -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no "$setupDir\$scriptName" "root@${kitIp}:/root/setup/$scriptName"
 }
 
-# Step 11: Make scripts executable and run main.sh
-Write-Output "Making scripts executable and running main.sh on both droplets..."
-ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$initIp "chmod +x /root/setup/*.sh && /root/setup/main.sh > /var/log/init-setup.log 2>&1 &" 2>&1 | Write-Output
-ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$kitIp "chmod +x /root/setup/*.sh && /root/setup/main.sh > /var/log/init-setup.log 2>&1 &" 2>&1 | Write-Output
+# Step 11: Make scripts executable and run each script one at a time
+Write-Output "Making scripts executable and running each script one at a time on both droplets..."
+ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$initIp "chmod +x /root/setup/*.sh" 2>&1 | Write-Output
+ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$kitIp "chmod +x /root/setup/*.sh" 2>&1 | Write-Output
+
+Write-Output "Running scripts on ai-init-droplet..."
+$scripts = Get-ChildItem -Path "$setupDir\*.sh" | Sort-Object Name
+foreach ($script in $scripts) {
+    $scriptName = $script.Name
+    Write-Output "Running $scriptName on ai-init-droplet..."
+    ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$initIp "/root/setup/$scriptName >> /var/log/init-setup.log 2>&1" 2>&1 | Write-Output
+}
+
+Write-Output "Running scripts on ai-kit..."
+foreach ($script in $scripts) {
+    $scriptName = $script.Name
+    Write-Output "Running $scriptName on ai-kit..."
+    ssh -i "C:\Users\rober\.ssh\id_rsa_auto" -o StrictHostKeyChecking=no root@$kitIp "/root/setup/$scriptName >> /var/log/init-setup.log 2>&1" 2>&1 | Write-Output
+}
 
 # Step 12: Update the SSH config file for VS Code
 Write-Output "Configuring VS Code SSH access..."
@@ -138,11 +184,17 @@ Host ai-init-droplet
     HostName $initIp
     User root
     IdentityFile C:\Users\rober\.ssh\id_rsa_auto
+    ServerAliveInterval 60
+    ServerAliveCountMax 10
+    TCPKeepAlive yes
 
 Host ai-kit
     HostName $kitIp
     User root
     IdentityFile C:\Users\rober\.ssh\id_rsa_auto
+    ServerAliveInterval 60
+    ServerAliveCountMax 10
+    TCPKeepAlive yes
 "@
 
 Write-Output "Deployment complete! Connect to droplets in VS Code using Remote-SSH extension."
@@ -150,3 +202,33 @@ Write-Output "Select 'ai-init-droplet' or 'ai-kit' from the Remote-SSH: Connect 
 Write-Output ""
 Write-Output "To monitor setup progress, run: ./check-droplet-status.ps1"
 Write-Output "Or manually check logs with: ssh root@$initIp 'tail -f /var/log/init-setup.log'"
+
+# Step 13: Create a markdown file with droplet information and credentials
+Write-Output "Creating droplet-info.md with connection details and credentials..."
+$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+Set-Content -Path "droplet-info.md" -Value @"
+# Droplet Information
+Generated on: $timestamp
+
+## ai-init-droplet
+- IP Address: $initIp
+- Region: $region
+- SSH User: root
+- SSH Key: C:\Users\rober\.ssh\id_rsa_auto
+
+## ai-kit
+- IP Address: $kitIp
+- Region: $region
+- SSH User: root
+- SSH Key: C:\Users\rober\.ssh\id_rsa_auto
+
+## Credentials
+- Note: Passwords for services will be available in /root/credentials.txt on each droplet after setup completes.
+- To retrieve credentials, use: ssh root@$initIp 'cat /root/credentials.txt'
+
+## Connection Instructions
+1. Open VS Code
+2. Use the Remote-SSH extension
+3. Select 'ai-init-droplet' or 'ai-kit' from the Connect to Host menu
+"@
+Write-Output "droplet-info.md created with connection details."
