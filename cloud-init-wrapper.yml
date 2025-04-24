@@ -1,7 +1,13 @@
 #cloud-config
+write_files:
+  - path: /var/log/setup.log
+    content: |
+      Cloud-Init Setup Log
+      -------------------
+    permissions: '0644'
+
 runcmd:
-  - echo "Starting enhanced local AI setup at $(date)" > /var/log/cloud-init-ai-setup.log
-  - mkdir -p /root/setup
-  - echo "Using locally uploaded setup scripts from D:\cloud-init-ai-setup\setup" >> /var/log/cloud-init-ai-setup.log
-  - chmod +x /root/setup/*.sh
-  - /root/setup/main.sh >> /var/log/cloud-init-ai-setup.log 2>&1 || echo "Setup failed, check /var/log/cloud-init-ai-setup.log for details"
+  - echo "Starting setup process - $(date)" >> /var/log/setup.log
+  - apt update -y
+  - apt install -y bash
+  - echo "Cloud-Init completed. Setup scripts will be executed via SSH. - $(date)" >> /var/log/setup.log

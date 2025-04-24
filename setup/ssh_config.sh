@@ -54,8 +54,8 @@ EOF
 
 # Configure key-based authentication
 sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/g' /etc/ssh/sshd_config
-sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
-sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/g' /etc/ssh/sshd_config
+sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin prohibit-password/g' /etc/ssh/sshd_config
 
 # Add user to required groups for log access
 usermod -aG adm,systemd-journal "$USERNAME"
@@ -89,13 +89,9 @@ Host *
     ServerAliveInterval 30
     ServerAliveCountMax 120
     TCPKeepAlive yes
-    ControlMaster auto
-    ControlPath ~/.ssh/sockets/%r@%h-%p
-    ControlPersist 600
 EOF
 
-mkdir -p /home/$USERNAME/.ssh/sockets
-chmod 700 /home/$USERNAME/.ssh/sockets
+# Removed creation of sockets directory as ControlMaster is disabled
 chown -R $USERNAME:$USERNAME /home/$USERNAME/.ssh
 
 info "SSH configuration completed successfully."
